@@ -212,7 +212,8 @@
     <div class="section-title">Parâmetros de detecção de picos</div>
     <div class="field">
       <label>PROPORÇÃO MÍNIMA DO PICO (x ruído de fundo)</label>
-      <input type="number" id="minPeakRatio" step="0.1" min="1.5">
+      <input type="number" id="minPeakRatio" step="0.5" min="1.5">
+      <div class="help">Quanto mais alto, mais o app ignora ruído de fundo, passos e conversas — só reage a sons bem mais fortes que o ambiente.</div>
     </div>
     <div class="field">
       <label>TEMPO MÁXIMO ENTRE PICOS (ms)</label>
@@ -220,9 +221,9 @@
       <div class="help">Se o impacto não for detectado dentro desse tempo, o disparo é descartado.</div>
     </div>
     <div class="field">
-      <label>TEMPO MÍNIMO ENTRE PICOS (ms)</label>
+      <label>SILÊNCIO MÍNIMO PARA FECHAR O SOM (ms)</label>
       <input type="number" id="minTimeBetweenPeaks" step="10" min="20">
-      <div class="help">Período de bloqueio após um pico, para ignorar ecos e ruídos falsos.</div>
+      <div class="help">Tempo que o som precisa ficar baixo antes do app considerar que aquele estouro (disparo ou impacto) terminou. Evita que o eco/reverb de um mesmo som seja contado como dois eventos.</div>
     </div>
 
     <div class="sheet-footer">
@@ -256,11 +257,12 @@
     distArcherTarget: 20,
     distPhoneArcher: 2,
     distPhoneTarget: 2,
-    minPeakRatio: 6,
+    minPeakRatio: 14,
     maxTimeBetweenPeaks: 1500,
-    minTimeBetweenPeaks: 150
+    minTimeBetweenPeaks: 90
   };
   const SOUND_SPEED = 343; // m/s
+  const RELEASE_FRAC = 0.45; // limiar de "som acabou" = attackThreshold * RELEASE_FRAC
 
   let settings = {...DEFAULTS};
   let shots = [];
@@ -270,8 +272,16 @@
   let noiseFloor = 0.01;
   let phase = 'idle'; // idle | waiting_peak2
   let t1 = 0;
-  let lastPeakTime = -99999;
   let rafId = null;
+
+  // detecção de som com "attack/hold/release": junta ecos/reverberação de um
+  // mesmo estouro de som em UM único evento, usando o instante de maior
+  // amplitude dentro da rajada, e só libera um novo evento depois que o som
+  // fica abaixo do limiar de liberação por minTimeBetweenPeaks (ms) seguidos.
+  let burstState = 'quiet'; // quiet | active
+  let burstPeakAmp = -1;
+  let burstPeakTime = 0;
+  let quietSince = null;
 
   let calibrating = false;
   let calibShots = []; // {rawIntervalMs, ratio1, ratio2}
@@ -418,7 +428,7 @@
     source.connect(analyser);
 
     listening = true;
-    phase='idle'; noiseFloor=0.01; lastPeakTime=-99999;
+    phase='idle'; noiseFloor=0.01; burstState='quiet'; burstPeakAmp=-1; quietSince=null;
     toggleBtn.textContent='DESLIGAR'; toggleBtn.classList.add('on');
     listenDot.classList.add('live'); listenStatus.textContent='ESCUTANDO';
     loop();
@@ -455,34 +465,62 @@
     }
   }
 
+  // Chamado quando uma rajada de som termina (após ficar quieta por
+  // minTimeBetweenPeaks ms) — usa o instante do PICO da rajada, não o
+  // primeiro instante em que cruzou o limiar. Isso evita que ecos e a
+  // reverberação de um único som (disparo ou impacto) sejam contados como
+  // vários eventos separados.
+  function handleSoundEvent(peakTime, ratio){
+    if(phase==='idle'){
+      phase='waiting_peak2'; t1=peakTime;
+      listenStatus.textContent='AGUARDANDO IMPACTO';
+      if(calibrating) calibPeakRatios.push(ratio);
+    } else if(phase==='waiting_peak2'){
+      const raw = peakTime - t1;
+      phase='idle';
+      listenStatus.textContent='ESCUTANDO';
+      if(calibrating){
+        calibPeakRatios.push(ratio);
+        calibShots.push({rawIntervalMs: raw, ratios:[...calibPeakRatios]});
+        calibPeakRatios=[];
+        onCalibShotCaptured();
+      } else {
+        registerShot(raw);
+      }
+    }
+  }
+
   function loop(){
     if(!listening) return;
     const amp = getAmplitude();
     updateBars(amp);
     const now = performance.now();
-    const threshold = Math.max(noiseFloor*settings.minPeakRatio, 0.04);
+    const attackThr = Math.max(noiseFloor*settings.minPeakRatio, 0.035);
+    const releaseThr = attackThr*RELEASE_FRAC;
 
-    if(amp < threshold){
-      noiseFloor = noiseFloor*0.985 + amp*0.015;
-      noiseFloor = Math.max(noiseFloor, 0.003);
-    } else if((now-lastPeakTime) >= settings.minTimeBetweenPeaks){
-      lastPeakTime = now;
-      if(phase==='idle'){
-        phase='waiting_peak2'; t1=now;
-        listenStatus.textContent='AGUARDANDO IMPACTO';
-        if(calibrating) calibPeakRatios.push(amp/Math.max(noiseFloor,0.003));
-      } else if(phase==='waiting_peak2'){
-        const raw = now - t1;
-        phase='idle';
-        listenStatus.textContent='ESCUTANDO';
-        if(calibrating){
-          calibPeakRatios.push(amp/Math.max(noiseFloor,0.003));
-          calibShots.push({rawIntervalMs: raw, ratios:[...calibPeakRatios]});
-          calibPeakRatios=[];
-          onCalibShotCaptured();
-        } else {
-          registerShot(raw);
+    if(burstState==='quiet'){
+      if(amp < releaseThr){
+        noiseFloor = noiseFloor*0.985 + amp*0.015;
+        noiseFloor = Math.max(noiseFloor, 0.003);
+      }
+      if(amp >= attackThr){
+        burstState='active';
+        burstPeakAmp = amp;
+        burstPeakTime = now;
+        quietSince = null;
+      }
+    } else { // burstState === 'active' -> som em andamento, seguindo o pico
+      if(amp > burstPeakAmp){ burstPeakAmp = amp; burstPeakTime = now; }
+      if(amp < releaseThr){
+        if(quietSince===null) quietSince = now;
+        if((now - quietSince) >= settings.minTimeBetweenPeaks){
+          const ratio = burstPeakAmp/Math.max(noiseFloor,0.003);
+          handleSoundEvent(burstPeakTime, ratio);
+          burstState='quiet';
+          quietSince=null;
         }
+      } else {
+        quietSince = null;
       }
     }
 
@@ -498,7 +536,20 @@
 
   toggleBtn.addEventListener('click', ()=>{ listening ? stopListening() : startListening(); });
   resetBtn.addEventListener('click', ()=>{
-    phase='idle'; noiseFloor=0.01; lastPeakTime=-99999;
+    // reinicia a detecção de som (para não ficar travado "aguardando impacto")
+    phase='idle'; noiseFloor=0.01; burstState='quiet'; burstPeakAmp=-1; quietSince=null;
+
+    // limpa o histórico de disparos
+    if(shots.length>0){
+      const ok = confirm('Isso vai apagar todos os disparos salvos no histórico. Confirmar?');
+      if(ok){
+        shots = [];
+        saveShots();
+        renderShots();
+        updateMainDisplay(null);
+      }
+    }
+
     listenStatus.textContent = listening? 'ESCUTANDO':'PARADO';
     flashStatus('Reiniciado');
   });
@@ -576,9 +627,12 @@
       calibrating = false;
       const intervals = calibShots.map(s=>s.rawIntervalMs);
       const ratios = calibShots.flatMap(s=>s.ratios);
-      const minRatio = Math.max(2, Math.round(Math.min(...ratios)*0.65*10)/10);
-      const maxT = Math.round((Math.max(...intervals)*1.4)/10)*10;
-      const minT = Math.round((Math.min(...intervals)*0.35)/10)*10;
+      // margem de segurança abaixo da proporção real observada nos 2 disparos
+      const minRatio = Math.max(4, Math.round(Math.min(...ratios)*0.6*10)/10);
+      // tempo máximo entre picos: folga sobre o maior intervalo disparo→impacto observado
+      const maxT = Math.round((Math.max(...intervals)*1.6)/10)*10;
+      // silêncio mínimo para fechar o som: valor fixo recomendado, independente da distância de tiro
+      const minT = 90;
 
       calibTitle.textContent='Calibração completa!';
       calibBody.innerHTML = `
@@ -586,7 +640,7 @@
         <ul class="calib-list">
           <li>Proporção mínima do pico: ${minRatio.toFixed(1)}</li>
           <li>Tempo máximo entre picos: ${maxT}ms</li>
-          <li>Tempo mínimo entre picos: ${minT}ms</li>
+          <li>Silêncio mínimo para fechar o som: ${minT}ms</li>
         </ul>
       `;
       calibStartBtn.style.display='none';
@@ -610,3 +664,4 @@
 </script>
 </body>
 </html>
+
