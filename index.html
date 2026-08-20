@@ -165,13 +165,21 @@
     </button>
   </div>
 
+  <div class="panel" id="analysisPanel" style="display:none;">
+    <div class="history-head" style="margin-bottom:10px;">
+      <h3>Análise dos Resultados</h3>
+    </div>
+    <div id="analysisBadge" style="margin-bottom:10px;"></div>
+    <div id="analysisBody" style="font-size:13px;line-height:1.7;color:#222;"></div>
+  </div>
+
   <div class="beta-banner">
     <span class="tag">BETA</span>
     <p>Estamos em fase de testes. Os resultados podem variar bastante em ambientes com muito ruído — use em local silencioso e faça os ajustes dos dados antes de confiar nos números.</p>
   </div>
 
   <div style="text-align:center;padding:14px 0 4px;color:var(--muted);font-size:11px;letter-spacing:.5px;">
-    Point IA Archery · versão 1.9
+    Point IA Archery · versão 2.0
   </div>
 </div>
 
@@ -359,6 +367,7 @@
     if(shots.length===0){
       shotList.innerHTML = '<div class="empty-hint">Nenhum disparo registrado ainda.<br>Configure as distâncias em Ajustes e toque em LIGAR.</div>';
       avgVal.textContent='--'; spreadVal.textContent='--';
+      updateAnalysis();
       return;
     }
     const fpsVals = shots.map(s=>msToFps(s.speedMs));
@@ -391,6 +400,61 @@
         updateMainDisplay(shots[0]);
       });
     });
+    updateAnalysis();
+  }
+
+  // ---------- análise dos resultados ----------
+  const analysisPanel = document.getElementById('analysisPanel');
+  const analysisBadge = document.getElementById('analysisBadge');
+  const analysisBody = document.getElementById('analysisBody');
+
+  function updateAnalysis(){
+    if(shots.length===0){ analysisPanel.style.display='none'; return; }
+    analysisPanel.style.display='block';
+
+    const fpsVals = shots.map(s=>msToFps(s.speedMs));
+    const avg = fpsVals.reduce((a,b)=>a+b,0)/fpsVals.length;
+    const spread = Math.max(...fpsVals)-Math.min(...fpsVals);
+    const spreadPct = (spread/avg)*100;
+    const avgFlight = shots.reduce((a,s)=>a+s.flightTimeMs,0)/shots.length;
+
+    let lines = [];
+    let ok = true;
+
+    // consistência entre os disparos
+    if(shots.length < 2){
+      lines.push('ℹ️ Registre pelo menos 2 disparos para uma análise de consistência mais confiável.');
+    } else if(spreadPct <= 5){
+      lines.push(`✅ Boa consistência entre os disparos — variação de ${spreadPct.toFixed(1)}% (desvio de ${spread.toFixed(1)} FPS).`);
+    } else if(spreadPct <= 10){
+      lines.push(`⚠️ Variação moderada entre os disparos (${spreadPct.toFixed(1)}%). Pode ser normal, mas confira se o ambiente estava silencioso em todos os tiros.`);
+      ok = false;
+    } else {
+      lines.push(`🔴 Variação alta entre os disparos (${spreadPct.toFixed(1)}%). Isso costuma indicar ruído no ambiente, eco forte, ou detecção pegando o momento errado do som. Considere recalibrar em Ajustes.`);
+      ok = false;
+    }
+
+    // faixa típica de velocidade para tiro com arco
+    if(avg < 80){
+      lines.push(`🔴 Velocidade média (${avg.toFixed(1)} FPS) está bem abaixo do normal para tiro com arco. Confira as distâncias em Ajustes — um erro comum é inverter Arqueiro→Alvo com Celular→Alvo.`);
+      ok = false;
+    } else if(avg > 420){
+      lines.push(`🔴 Velocidade média (${avg.toFixed(1)} FPS) está acima até do esperado para arcos compostos rápidos. Confira se a distância Arqueiro→Alvo não está maior do que a real.`);
+      ok = false;
+    } else {
+      lines.push(`✅ Velocidade média (${avg.toFixed(1)} FPS) está dentro da faixa típica de tiro com arco (100–400 FPS).`);
+    }
+
+    // tempo de voo suspeito
+    if(avgFlight < 50){
+      lines.push(`⚠️ Tempo de voo médio muito curto (${avgFlight.toFixed(0)}ms). Confira se a distância Arqueiro→Alvo em Ajustes não está pequena demais.`);
+      ok = false;
+    }
+
+    analysisBadge.innerHTML = ok
+      ? '<span style="background:#128C3E;color:#fff;font-size:11px;font-weight:700;letter-spacing:1px;padding:4px 10px;border-radius:6px;">RESULTADOS CONSISTENTES</span>'
+      : '<span style="background:#c0392b;color:#fff;font-size:11px;font-weight:700;letter-spacing:1px;padding:4px 10px;border-radius:6px;">VERIFICAR RESULTADOS</span>';
+    analysisBody.innerHTML = lines.map(l=>`<p style="margin:0 0 8px;">${l}</p>`).join('');
   }
 
   // ---------- physics ----------
