@@ -159,6 +159,10 @@
       <div class="history-meta">Média: <span id="avgVal">--</span> FPS<br>Desvio: <span id="spreadVal">--</span> FPS</div>
     </div>
     <div id="shotList"><div class="empty-hint">Nenhum disparo registrado ainda.<br>Configure as distâncias em Ajustes e toque em LIGAR.</div></div>
+    <button class="btn" id="whatsappBtn" style="width:100%;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;border-color:#25D366;color:#128C3E;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01C17.19 3.03 14.7 2 12.04 2zm0 18.15h-.01c-1.5 0-2.97-.4-4.25-1.16l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.37c0-4.54 3.7-8.24 8.25-8.24 2.2 0 4.27.86 5.83 2.42a8.19 8.19 0 0 1 2.41 5.83c0 4.55-3.7 8.23-8.18 8.23zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.17.24-.64.81-.78.97-.14.17-.29.19-.53.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.24-1.47-1.38-1.72-.15-.24-.02-.38.11-.5.11-.11.25-.29.37-.43.12-.15.16-.25.25-.42.08-.16.04-.31-.02-.43-.06-.13-.56-1.35-.77-1.85-.2-.48-.41-.42-.56-.43-.14-.01-.31-.01-.48-.01-.16 0-.43.06-.66.31-.23.24-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.68 4.25 3.75.59.26 1.06.41 1.42.52.6.19 1.14.16 1.57.1.48-.07 1.47-.6 1.68-1.19.21-.58.21-1.08.14-1.19-.06-.11-.23-.17-.48-.29z"/></svg>
+      ENVIAR PARA WHATSAPP
+    </button>
   </div>
 
   <div class="beta-banner">
@@ -167,7 +171,7 @@
   </div>
 
   <div style="text-align:center;padding:14px 0 4px;color:var(--muted);font-size:11px;letter-spacing:.5px;">
-    Point IA Archery · versão 1.8
+    Point IA Archery · versão 1.9
   </div>
 </div>
 
@@ -567,6 +571,25 @@
 
     listenStatus.textContent = listening? 'ESCUTANDO':'PARADO';
     flashStatus('Reiniciado');
+  });
+
+  // ---------- compartilhar no WhatsApp ----------
+  document.getElementById('whatsappBtn').addEventListener('click', ()=>{
+    if(shots.length===0){
+      alert('Ainda não há nenhum disparo registrado para enviar.');
+      return;
+    }
+    let text = `🏹 *Cronógrafo Balístico por Som*\n`;
+    text += `_Point IA Archery_\n\n`;
+    shots.slice(0,15).forEach((s,idx)=>{
+      const n = shots.length-idx;
+      text += `#${n} — ${fmt(msToFps(s.speedMs),1)} FPS · ${fmt(s.speedMs,2)} M/S · ${fmt(msToKmh(s.speedMs),1)} KM/H · ${s.energyJ.toFixed(1)}J · ${Math.round(s.flightTimeMs)}ms\n`;
+    });
+    if(shots.length>15){ text += `\n(+ ${shots.length-15} disparo(s) mais antigo(s) não incluído(s))\n`; }
+    text += `\nMédia: ${avgVal.textContent} FPS · Desvio: ${spreadVal.textContent} FPS`;
+    text += `\n\n⚠️ App em fase de testes — resultados podem variar com ruído no ambiente.`;
+    const url = 'https://wa.me/?text=' + encodeURIComponent(text);
+    window.open(url, '_blank');
   });
 
   // ---------- settings sheet ----------
