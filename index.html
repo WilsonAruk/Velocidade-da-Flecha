@@ -179,7 +179,7 @@
   </div>
 
   <div style="text-align:center;padding:14px 0 4px;color:var(--muted);font-size:11px;letter-spacing:.5px;">
-    Point IA Archery · versão 2.1
+    Point IA Archery · versão 2.2
   </div>
 </div>
 
@@ -280,6 +280,16 @@
   const SOUND_SPEED = 343; // m/s
   const RELEASE_FRAC = 0.45; // limiar de "som acabou" = attackThreshold * RELEASE_FRAC
 
+  // parâmetros do detector de IMPACTO (2ª fase): o impacto costuma ficar
+  // "afogado" dentro do próprio eco em decaimento do disparo, então em vez
+  // de um limiar fixo, seguimos uma referência que acompanha a cauda do
+  // som decaindo e detectamos quando o volume SOBE de novo em relação a
+  // essa referência — mesmo que o ambiente ainda não tenha ficado quieto.
+  const IMPACT_BUMP_RATIO = 1.3;
+  const IMPACT_REF_RELEASE = 0.08;
+  const IMPACT_INIT_FRAC = 0.25;
+  const IMPACT_HOLD_MS = 15;
+
   let settings = {...DEFAULTS};
   let shots = [];
 
@@ -290,14 +300,22 @@
   let t1 = 0;
   let rafId = null;
 
-  // detecção de som com "attack/hold/release": junta ecos/reverberação de um
-  // mesmo estouro de som em UM único evento, usando o instante de maior
-  // amplitude dentro da rajada, e só libera um novo evento depois que o som
-  // fica abaixo do limiar de liberação por minTimeBetweenPeaks (ms) seguidos.
+  // detecção do DISPARO (1ª fase) com "attack/hold/release": junta ecos/
+  // reverberação de um mesmo estouro de som em UM único evento, usando o
+  // instante de maior amplitude dentro da rajada, e só libera um novo
+  // evento depois que o som fica abaixo do limiar de liberação por
+  // minTimeBetweenPeaks (ms) seguidos.
   let burstState = 'quiet'; // quiet | active
   let burstPeakAmp = -1;
   let burstPeakTime = 0;
   let quietSince = null;
+
+  // detecção do IMPACTO (2ª fase) — só roda enquanto phase==='waiting_peak2'
+  let impactRef = 0;
+  let impactSearching = false; // true = já cruzou o limiar, segurando o pico local
+  let impactHoldSince = null;
+  let impactCandTime = 0;
+  let impactCandAmp = -1;
 
   let calibrating = false;
   let calibShots = []; // {rawIntervalMs, ratio1, ratio2}
@@ -559,28 +577,34 @@
     }
   }
 
-  // Chamado quando uma rajada de som termina (após ficar quieta por
+  // Chamado quando a rajada do DISPARO termina (após ficar quieta por
   // minTimeBetweenPeaks ms) — usa o instante do PICO da rajada, não o
-  // primeiro instante em que cruzou o limiar. Isso evita que ecos e a
-  // reverberação de um único som (disparo ou impacto) sejam contados como
-  // vários eventos separados.
-  function handleSoundEvent(peakTime, ratio){
-    if(phase==='idle'){
-      phase='waiting_peak2'; t1=peakTime;
-      listenStatus.textContent='AGUARDANDO IMPACTO';
-      if(calibrating) calibPeakRatios.push(ratio);
-    } else if(phase==='waiting_peak2'){
-      const raw = peakTime - t1;
-      phase='idle';
-      listenStatus.textContent='ESCUTANDO';
-      if(calibrating){
-        calibPeakRatios.push(ratio);
-        calibShots.push({rawIntervalMs: raw, ratios:[...calibPeakRatios]});
-        calibPeakRatios=[];
-        onCalibShotCaptured();
-      } else {
-        registerShot(raw);
-      }
+  // primeiro instante em que cruzou o limiar.
+  function finalizeShot(peakTime, ratio){
+    phase='waiting_peak2'; t1=peakTime;
+    listenStatus.textContent='AGUARDANDO IMPACTO';
+    if(calibrating) calibPeakRatios.push(ratio);
+    // arma o detector de impacto (2ª fase), com referência iniciando
+    // numa fração do pico do disparo — ela vai decaindo acompanhando o
+    // eco, e qualquer "subida" relativa a partir daí é candidata a impacto
+    impactRef = Math.max(burstPeakAmp*IMPACT_INIT_FRAC, 0.01);
+    impactSearching = false;
+    impactHoldSince = null;
+    impactCandAmp = -1;
+  }
+
+  // Chamado quando o IMPACTO é confirmado (2ª fase).
+  function finalizeImpact(peakTime, ratio){
+    const raw = peakTime - t1;
+    phase='idle';
+    listenStatus.textContent='ESCUTANDO';
+    if(calibrating){
+      calibPeakRatios.push(ratio);
+      calibShots.push({rawIntervalMs: raw, ratios:[...calibPeakRatios]});
+      calibPeakRatios=[];
+      onCalibShotCaptured();
+    } else {
+      registerShot(raw);
     }
   }
 
@@ -592,37 +616,61 @@
     const amp = getAmplitude();
     updateBars(amp);
     const now = performance.now();
-    const attackThr = Math.max(noiseFloor*settings.minPeakRatio, 0.035);
-    const releaseThr = attackThr*RELEASE_FRAC;
 
-    if(burstState==='quiet'){
-      if(amp < releaseThr){
-        noiseFloor = noiseFloor*0.985 + amp*0.015;
-        noiseFloor = Math.max(noiseFloor, 0.003);
+    if(phase==='idle'){
+      // ---- 1ª fase: detectar o DISPARO (limiar fixo sobre o ruído de fundo) ----
+      const attackThr = Math.max(noiseFloor*settings.minPeakRatio, 0.035);
+      const releaseThr = attackThr*RELEASE_FRAC;
+
+      if(burstState==='quiet'){
+        if(amp < releaseThr){
+          noiseFloor = noiseFloor*0.985 + amp*0.015;
+          noiseFloor = Math.max(noiseFloor, 0.003);
+        }
+        if(amp >= attackThr){
+          burstState='active';
+          burstPeakAmp = amp;
+          burstPeakTime = now;
+          quietSince = null;
+        }
+      } else { // burstState === 'active' -> som em andamento, seguindo o pico
+        if(amp > burstPeakAmp){ burstPeakAmp = amp; burstPeakTime = now; }
+        if(amp < releaseThr){
+          if(quietSince===null) quietSince = now;
+          if((now - quietSince) >= settings.minTimeBetweenPeaks){
+            const ratio = burstPeakAmp/Math.max(noiseFloor,0.003);
+            burstState='quiet';
+            quietSince=null;
+            finalizeShot(burstPeakTime, ratio);
+          }
+        } else {
+          quietSince = null;
+        }
       }
-      if(amp >= attackThr){
-        burstState='active';
-        burstPeakAmp = amp;
-        burstPeakTime = now;
-        quietSince = null;
-      }
-    } else { // burstState === 'active' -> som em andamento, seguindo o pico
-      if(amp > burstPeakAmp){ burstPeakAmp = amp; burstPeakTime = now; }
-      if(amp < releaseThr){
-        if(quietSince===null) quietSince = now;
-        if((now - quietSince) >= settings.minTimeBetweenPeaks){
-          const ratio = burstPeakAmp/Math.max(noiseFloor,0.003);
-          handleSoundEvent(burstPeakTime, ratio);
-          burstState='quiet';
-          quietSince=null;
+    } else if(phase==='waiting_peak2'){
+      // ---- 2ª fase: detectar o IMPACTO (referência adaptativa, mais sensível) ----
+      const bumpThr = impactRef*IMPACT_BUMP_RATIO;
+      if(!impactSearching){
+        if(amp >= bumpThr){
+          impactSearching = true;
+          impactHoldSince = now;
+          impactCandTime = now;
+          impactCandAmp = amp;
+        } else if(amp < impactRef){
+          impactRef += (amp-impactRef)*IMPACT_REF_RELEASE;
         }
       } else {
-        quietSince = null;
+        if(amp > impactCandAmp){ impactCandAmp = amp; impactCandTime = now; }
+        if((now-impactHoldSince) >= IMPACT_HOLD_MS){
+          const ratio = impactCandAmp/Math.max(impactRef,0.0005);
+          finalizeImpact(impactCandTime, ratio);
+        }
       }
     }
 
     if(phase==='waiting_peak2' && (now-t1) > settings.maxTimeBetweenPeaks){
       phase='idle';
+      burstState='quiet'; quietSince=null;
       listenStatus.textContent='ESCUTANDO';
       flashStatus(calibrating? 'Impacto não detectado — tente de novo' : 'Impacto não detectado (tempo esgotado)');
       if(calibrating){ calibPeakRatios=[]; }
@@ -635,6 +683,7 @@
   resetBtn.addEventListener('click', ()=>{
     // reinicia a detecção de som (para não ficar travado "aguardando impacto")
     phase='idle'; noiseFloor=0.01; burstState='quiet'; burstPeakAmp=-1; quietSince=null;
+    impactSearching=false; impactHoldSince=null; impactCandAmp=-1;
 
     // limpa o histórico de disparos
     if(shots.length>0){
