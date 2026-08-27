@@ -179,7 +179,7 @@
   </div>
 
   <div style="text-align:center;padding:14px 0 4px;color:var(--muted);font-size:11px;letter-spacing:.5px;">
-    Point IA Archery · versão 2.0
+    Point IA Archery · versão 2.1
   </div>
 </div>
 
@@ -229,7 +229,7 @@
     <div class="field">
       <label>PROPORÇÃO MÍNIMA DO PICO (x ruído de fundo)</label>
       <input type="number" id="minPeakRatio" step="0.5" min="1.5">
-      <div class="help">Quanto mais alto, mais o app ignora ruído de fundo, passos e conversas — só reage a sons bem mais fortes que o ambiente.</div>
+      <div class="help">Quanto mais alto, mais o app ignora ruído de fundo, passos e conversas — só reage a sons bem mais fortes que o ambiente. <b>iPhones geralmente precisam de um valor mais baixo</b> que Android (o iOS comprime o volume captado pelo microfone). Use a Calibração abaixo para ajustar automaticamente.</div>
     </div>
     <div class="field">
       <label>TEMPO MÁXIMO ENTRE PICOS (ms)</label>
@@ -303,12 +303,26 @@
   let calibShots = []; // {rawIntervalMs, ratio1, ratio2}
   let calibPeakRatios = [];
 
+  // iOS/Safari costuma aplicar compressão automática de volume no
+  // microfone que o Web Audio API não consegue desativar totalmente,
+  // então os picos reais (disparo/impacto) aparecem com uma proporção
+  // bem menor acima do ruído do que no Android. Por isso usamos um
+  // padrão de sensibilidade mais baixo nesses aparelhos.
+  function isIOS(){
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
   // ---------- storage ----------
   async function loadState(){
+    let hasSavedSettings = false;
     try{
       const s = await window.storage.get('settings');
-      if(s && s.value) settings = {...DEFAULTS, ...JSON.parse(s.value)};
+      if(s && s.value){ settings = {...DEFAULTS, ...JSON.parse(s.value)}; hasSavedSettings = true; }
     }catch(e){ /* no saved settings yet */ }
+    if(!hasSavedSettings && isIOS()){
+      settings.minPeakRatio = 8;
+    }
     try{
       const sh = await window.storage.get('shots');
       if(sh && sh.value) shots = JSON.parse(sh.value);
