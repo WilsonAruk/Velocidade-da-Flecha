@@ -50,9 +50,14 @@
   .bars i{display:block;width:3px;background:var(--green-dim);border-radius:1px;height:2px;transition:height .05s linear, background .05s linear;}
 
   .btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;}
-  .btn{padding:12px 8px;border-radius:9px;border:1px solid var(--green-dim);background:transparent;color:var(--green);font-family:inherit;font-size:12px;letter-spacing:1.5px;cursor:pointer;transition:.15s;}
+  .btn{padding:14px 8px;border-radius:9px;border:1px solid var(--green-dim);background:transparent;color:var(--green);font-family:inherit;font-size:13px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:.15s;}
   .btn:hover{background:rgba(37,84,234,.08);}
   .btn.on{background:var(--green);color:#ffffff;font-weight:700;}
+  .btn-primary{background:var(--brand);color:#ffffff;border-color:var(--brand);box-shadow:0 3px 10px rgba(37,84,234,.35);}
+  .btn-primary:hover{background:var(--brand-dark);}
+  .btn-primary.on{background:#c0392b;border-color:#c0392b;box-shadow:0 3px 10px rgba(192,57,43,.35);}
+  .btn-secondary{background:#eef2fc;border-color:var(--line);color:var(--brand);}
+  .btn-secondary:hover{background:#e2e9fb;}
 
   .history-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;}
   .history-head h3{margin:0;font-size:15px;color:var(--text);font-weight:600;}
@@ -118,6 +123,13 @@
   .card-header-row h2{margin:0;font-size:17px;font-weight:800;color:#111;font-family:'Segoe UI',system-ui,sans-serif;}
   .card-header-row .subtitle{font-size:11px;letter-spacing:1px;color:var(--muted);font-weight:700;margin-top:2px;}
   .card-header-actions{display:flex;gap:8px;flex-shrink:0;}
+  .example-link-row{text-align:center;margin-top:10px;}
+  .example-link{background:none;border:none;color:var(--brand);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;letter-spacing:.3px;}
+  .example-link:hover{text-decoration:underline;}
+  .example-badge{display:none;background:#f59e0b;color:#fff;font-size:10px;font-weight:800;letter-spacing:1px;padding:3px 8px;border-radius:6px;margin-left:8px;vertical-align:middle;}
+  .example-note{display:none;background:#fff7e6;border:1px solid #f5cf87;color:#8a6100;font-size:12px;line-height:1.5;border-radius:8px;padding:10px 12px;margin-top:12px;font-family:'Segoe UI',system-ui,sans-serif;}
+  .step-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--brand);color:#fff;font-size:12px;font-weight:800;margin-right:8px;flex-shrink:0;}
+  .step-row{display:flex;align-items:flex-start;margin-bottom:14px;}
 </style>
 </head>
 <body>
@@ -182,12 +194,19 @@
     <div class="listen-row">
       <span class="dot" id="listenDot"></span>
       <span id="listenStatus" data-i18n="statusStopped">PARADO</span>
+      <span class="example-badge" id="exampleBadge" data-i18n="exampleBadge">EXEMPLO</span>
       <div class="bars" id="levelBars"></div>
     </div>
 
     <div class="btn-grid">
-      <button class="btn" id="toggleBtn" data-i18n="toggleOn">LIGAR</button>
-      <button class="btn" id="resetBtn" data-i18n="resetBtnLabel">RESETAR</button>
+      <button class="btn btn-primary" id="toggleBtn" data-i18n="toggleOn">LIGAR</button>
+      <button class="btn btn-secondary" id="resetBtn" data-i18n="resetBtnLabel">RESETAR</button>
+    </div>
+
+    <div class="example-note" id="exampleNoteBox" data-i18n="exampleNote">Isso foi um exemplo — os números não são reais. Toque em LIGAR para um disparo de verdade.</div>
+
+    <div class="example-link-row">
+      <button class="example-link" id="exampleLinkBtn" data-i18n="exampleLinkLabel">▶ Ver exemplo de como usar</button>
     </div>
   </div>
 
@@ -300,6 +319,23 @@
   </div>
 </div>
 
+<!-- EXEMPLO -->
+<div class="overlay hidden" id="exampleOverlay">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 data-i18n="exampleSheetTitle">Como usar</h2>
+      <button class="close-x" id="exampleCloseBtn">✕</button>
+    </div>
+    <div class="info-text">
+      <div class="step-row"><span class="step-num">1</span><span data-i18n="exampleStep1">Toque em LIGAR e aguarde aparecer "ESCUTANDO".</span></div>
+      <div class="step-row"><span class="step-num">2</span><span data-i18n="exampleStep2">Posicione o celular perto do arco, virado pra cima e sem tampar o microfone.</span></div>
+      <div class="step-row"><span class="step-num">3</span><span data-i18n="exampleStep3">Atire normalmente — o app escuta o disparo e o impacto no alvo sozinho.</span></div>
+      <div class="step-row"><span class="step-num">4</span><span data-i18n="exampleStep4">Confira o resultado na tela: velocidade, tempo de voo e energia aparecem automaticamente.</span></div>
+    </div>
+    <button class="apply-btn" id="simulateBtn" data-i18n="exampleSimulateBtn">▶ Simular disparo de exemplo</button>
+  </div>
+</div>
+
 <script>
 
 (function(){
@@ -371,7 +407,15 @@
       analysisSpeedHigh:'🔴 Velocidade média ({a} FPS) está acima até do esperado para arcos compostos rápidos. Confira se a distância Arqueiro→Alvo não está maior do que a real.',
       analysisSpeedOk:'✅ Velocidade média ({a} FPS) está dentro da faixa típica de tiro com arco (100–400 FPS).',
       analysisFlightShort:'⚠️ Tempo de voo médio muito curto ({t}ms). Confira se a distância Arqueiro→Alvo em Ajustes não está pequena demais.',
-      badgeConsistent:'RESULTADOS CONSISTENTES', badgeCheck:'VERIFICAR RESULTADOS'
+      badgeConsistent:'RESULTADOS CONSISTENTES', badgeCheck:'VERIFICAR RESULTADOS',
+      exampleLinkLabel:'▶ Ver exemplo de como usar', exampleSheetTitle:'Como usar',
+      exampleStep1:'Toque em LIGAR e aguarde aparecer "ESCUTANDO".',
+      exampleStep2:'Posicione o celular perto do arco, virado pra cima e sem tampar o microfone.',
+      exampleStep3:'Atire normalmente — o app escuta o disparo e o impacto no alvo sozinho.',
+      exampleStep4:'Confira o resultado na tela: velocidade, tempo de voo e energia aparecem automaticamente.',
+      exampleSimulateBtn:'▶ Simular disparo de exemplo',
+      exampleNote:'Isso foi um exemplo — os números não são reais. Toque em LIGAR para um disparo de verdade.',
+      exampleBadge:'EXEMPLO'
     },
     en: {
       pageTitle:'Ballistic Sound Chronograph',
@@ -427,7 +471,15 @@
       analysisSpeedHigh:'🔴 Average speed ({a} FPS) is above even what\'s expected for fast compound bows. Check whether the Archer→Target distance isn\'t larger than the real one.',
       analysisSpeedOk:'✅ Average speed ({a} FPS) is within the typical archery range (100–400 FPS).',
       analysisFlightShort:'⚠️ Average flight time is very short ({t}ms). Check whether the Archer→Target distance in Settings isn\'t too small.',
-      badgeConsistent:'CONSISTENT RESULTS', badgeCheck:'CHECK RESULTS'
+      badgeConsistent:'CONSISTENT RESULTS', badgeCheck:'CHECK RESULTS',
+      exampleLinkLabel:'▶ See an example of how to use it', exampleSheetTitle:'How to use',
+      exampleStep1:'Tap START and wait for "LISTENING" to appear.',
+      exampleStep2:'Place the phone near the bow, facing up, without covering the microphone.',
+      exampleStep3:'Shoot normally — the app listens to the release and the target impact on its own.',
+      exampleStep4:'Check the result on screen: speed, flight time and energy appear automatically.',
+      exampleSimulateBtn:'▶ Simulate an example shot',
+      exampleNote:'This was an example — the numbers are not real. Tap START for a real shot.',
+      exampleBadge:'EXAMPLE'
     },
     es: {
       pageTitle:'Cronógrafo Balístico por Sonido',
@@ -483,7 +535,15 @@
       analysisSpeedHigh:'🔴 La velocidad media ({a} FPS) está por encima incluso de lo esperado para arcos compuestos rápidos. Verifica que la distancia Arquero→Blanco no sea mayor que la real.',
       analysisSpeedOk:'✅ La velocidad media ({a} FPS) está dentro del rango típico del tiro con arco (100–400 FPS).',
       analysisFlightShort:'⚠️ El tiempo de vuelo medio es muy corto ({t}ms). Verifica que la distancia Arquero→Blanco en Ajustes no sea demasiado pequeña.',
-      badgeConsistent:'RESULTADOS CONSISTENTES', badgeCheck:'VERIFICAR RESULTADOS'
+      badgeConsistent:'RESULTADOS CONSISTENTES', badgeCheck:'VERIFICAR RESULTADOS',
+      exampleLinkLabel:'▶ Ver un ejemplo de cómo usarlo', exampleSheetTitle:'Cómo usar',
+      exampleStep1:'Toca INICIAR y espera a que aparezca "ESCUCHANDO".',
+      exampleStep2:'Coloca el celular cerca del arco, boca arriba y sin tapar el micrófono.',
+      exampleStep3:'Dispara normalmente — la app escucha el disparo y el impacto en el blanco por sí sola.',
+      exampleStep4:'Revisa el resultado en la pantalla: velocidad, tiempo de vuelo y energía aparecen automáticamente.',
+      exampleSimulateBtn:'▶ Simular un disparo de ejemplo',
+      exampleNote:'Esto fue un ejemplo — los números no son reales. Toca INICIAR para un disparo real.',
+      exampleBadge:'EJEMPLO'
     },
     fr: {
       pageTitle:'Chronographe Balistique Sonore',
@@ -539,7 +599,15 @@
       analysisSpeedHigh:'🔴 La vitesse moyenne ({a} FPS) dépasse même ce qui est attendu pour des arcs à poulies rapides. Vérifiez que la distance Archer→Cible n\'est pas plus grande que la réelle.',
       analysisSpeedOk:'✅ La vitesse moyenne ({a} FPS) est dans la plage typique du tir à l\'arc (100–400 FPS).',
       analysisFlightShort:'⚠️ Le temps de vol moyen est très court ({t}ms). Vérifiez que la distance Archer→Cible dans Réglages n\'est pas trop petite.',
-      badgeConsistent:'RÉSULTATS COHÉRENTS', badgeCheck:'VÉRIFIER LES RÉSULTATS'
+      badgeConsistent:'RÉSULTATS COHÉRENTS', badgeCheck:'VÉRIFIER LES RÉSULTATS',
+      exampleLinkLabel:'▶ Voir un exemple d\'utilisation', exampleSheetTitle:'Comment utiliser',
+      exampleStep1:'Appuyez sur DÉMARRER et attendez que "ÉCOUTE" apparaisse.',
+      exampleStep2:'Placez le téléphone près de l\'arc, écran vers le haut, sans couvrir le micro.',
+      exampleStep3:'Tirez normalement — l\'application écoute le départ et l\'impact sur la cible toute seule.',
+      exampleStep4:'Consultez le résultat à l\'écran : vitesse, temps de vol et énergie apparaissent automatiquement.',
+      exampleSimulateBtn:'▶ Simuler un tir d\'exemple',
+      exampleNote:'Ceci était un exemple — les chiffres ne sont pas réels. Appuyez sur DÉMARRER pour un vrai tir.',
+      exampleBadge:'EXEMPLE'
     },
     ja: {
       pageTitle:'音響式弾速計',
@@ -595,7 +663,15 @@
       analysisSpeedHigh:'🔴 平均速度（{a} FPS）は高速なコンパウンドボウの想定値をも上回っています。「射手→的」の距離が実際より大きくなっていないか確認してください。',
       analysisSpeedOk:'✅ 平均速度（{a} FPS）はアーチェリーの一般的な範囲内です（100〜400 FPS）。',
       analysisFlightShort:'⚠️ 平均飛行時間が非常に短いです（{t}ms）。設定の「射手→的」の距離が小さすぎないか確認してください。',
-      badgeConsistent:'結果は一貫しています', badgeCheck:'結果を確認してください'
+      badgeConsistent:'結果は一貫しています', badgeCheck:'結果を確認してください',
+      exampleLinkLabel:'▶ 使い方の例を見る', exampleSheetTitle:'使い方',
+      exampleStep1:'「開始」をタップし、「聴取中」と表示されるのを待ちます。',
+      exampleStep2:'携帯電話を弓の近くに、画面を上にしてマイクを塞がないように置きます。',
+      exampleStep3:'通常通り発射してください — アプリが発射音と着弾音を自動で聴き取ります。',
+      exampleStep4:'画面で結果を確認します：速度、飛行時間、エネルギーが自動的に表示されます。',
+      exampleSimulateBtn:'▶ 例の発射をシミュレーション',
+      exampleNote:'これは例です — 数値は実際のものではありません。実際の発射には「開始」をタップしてください。',
+      exampleBadge:'例'
     },
     'zh-TW': {
       pageTitle:'聲學彈道測速儀',
@@ -651,7 +727,15 @@
       analysisSpeedHigh:'🔴 平均速度（{a} FPS）甚至超過了快速複合弓的預期範圍。請確認「射手→靶」的距離是否被設定得比實際更大。',
       analysisSpeedOk:'✅ 平均速度（{a} FPS）落在箭術的一般範圍內（100–400 FPS）。',
       analysisFlightShort:'⚠️ 平均飛行時間非常短（{t}ms）。請確認設定中「射手→靶」的距離是否設定得太小。',
-      badgeConsistent:'結果一致', badgeCheck:'請檢查結果'
+      badgeConsistent:'結果一致', badgeCheck:'請檢查結果',
+      exampleLinkLabel:'▶ 查看使用範例', exampleSheetTitle:'使用方式',
+      exampleStep1:'點擊「開始」，等待畫面顯示「聆聽中」。',
+      exampleStep2:'將手機放在弓附近，螢幕朝上，且不要遮住麥克風。',
+      exampleStep3:'正常發射——應用程式會自動聆聽放箭聲與撞擊靶聲。',
+      exampleStep4:'在畫面上查看結果：速度、飛行時間與能量會自動顯示。',
+      exampleSimulateBtn:'▶ 模擬範例發射',
+      exampleNote:'這是一個範例——數值並非真實資料。請點擊「開始」進行真實發射。',
+      exampleBadge:'範例'
     }
   };
   function T(key, params){
@@ -899,6 +983,7 @@
 
   // ---------- audio ----------
   async function startListening(){
+    hideExampleUI(); // sai do modo exemplo se estava ativo
     try{
       micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
     }catch(e){
@@ -1069,6 +1154,7 @@
 
   toggleBtn.addEventListener('click', ()=>{ listening ? stopListening() : startListening(); });
   resetBtn.addEventListener('click', ()=>{
+    hideExampleUI(); // sai do modo exemplo se estava ativo
     // reinicia a detecção de som (para não ficar travado "aguardando impacto")
     phase='idle'; noiseFloor=0.01; burstState='quiet'; burstPeakAmp=-1; quietSince=null;
     impactSearching=false; impactHoldSince=null; impactCandAmp=-1;
@@ -1084,7 +1170,7 @@
       }
     }
 
-    listenStatus.textContent = listening? 'ESCUTANDO':'PARADO';
+    listenStatus.textContent = listening? T('statusListening') : T('statusStopped');
     flashStatus(T('resetFlash'));
   });
 
@@ -1211,12 +1297,65 @@
     }
   }
 
+  // ---------- exemplo de uso (demonstração) ----------
+  const exampleOverlay = document.getElementById('exampleOverlay');
+  const exampleBadgeEl = document.getElementById('exampleBadge');
+  const exampleNoteBox = document.getElementById('exampleNoteBox');
+  let exampleTimers = [];
+  let inExampleMode = false;
+
+  document.getElementById('exampleLinkBtn').addEventListener('click', ()=> exampleOverlay.classList.remove('hidden'));
+  document.getElementById('exampleCloseBtn').addEventListener('click', ()=> exampleOverlay.classList.add('hidden'));
+
+  function hideExampleUI(){
+    inExampleMode = false;
+    exampleTimers.forEach(id=>clearTimeout(id));
+    exampleTimers = [];
+    exampleBadgeEl.style.display='none';
+    exampleNoteBox.style.display='none';
+  }
+
+  document.getElementById('simulateBtn').addEventListener('click', ()=>{
+    exampleOverlay.classList.add('hidden');
+    if(listening) stopListening();
+    exampleTimers.forEach(id=>clearTimeout(id));
+    exampleTimers = [];
+    inExampleMode = true;
+
+    // reseta os campos e mostra a etiqueta "EXEMPLO"
+    updateMainDisplay(null);
+    exampleNoteBox.style.display='none';
+    exampleBadgeEl.style.display='inline-block';
+    listenDot.classList.add('live');
+    listenStatus.textContent = T('statusListening');
+
+    exampleTimers.push(setTimeout(()=>{
+      if(!inExampleMode) return;
+      listenStatus.textContent = T('statusWaitingImpact');
+    }, 1400));
+
+    exampleTimers.push(setTimeout(()=>{
+      if(!inExampleMode) return;
+      listenDot.classList.remove('live');
+      listenStatus.textContent = T('statusStopped');
+      // números de exemplo (não são reais e não entram no histórico)
+      const exFlightMs = 689, exFps = 133.4, exEnergy = 45.0;
+      const exMs = exFps/3.28084, exKmh = exMs*3.6;
+      valFps.textContent = fmt(exFps,1);
+      valMs.textContent = fmt(exMs,2);
+      valKmh.textContent = fmt(exKmh,1);
+      flightTimeVal.textContent = exFlightMs+' ms';
+      energyVal.textContent = exEnergy.toFixed(1)+' J';
+      exampleNoteBox.style.display='block';
+    }, 2700));
+  });
+
   // ---------- seletor de idioma ----------
   function applyLanguage(lang){
     currentLang = I18N[lang] ? lang : 'pt';
     document.querySelectorAll('[data-i18n]').forEach(el=>{
       const key = el.getAttribute('data-i18n');
-      const val = T(key, key==='betaDesc' ? {v:'2.7'} : null);
+      const val = T(key, key==='betaDesc' ? {v:'2.9'} : null);
       if(el.hasAttribute('data-i18n-html')) el.innerHTML = val;
       else el.textContent = val;
     });
