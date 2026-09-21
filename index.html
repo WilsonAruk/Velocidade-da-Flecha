@@ -1154,7 +1154,12 @@
 
   toggleBtn.addEventListener('click', ()=>{ listening ? stopListening() : startListening(); });
   resetBtn.addEventListener('click', ()=>{
+    const wasExample = inExampleMode;
     hideExampleUI(); // sai do modo exemplo se estava ativo
+    if(wasExample){
+      // limpa os números de exemplo que ficaram na tela e volta pro último disparo real (se houver)
+      updateMainDisplay(shots.length>0 ? shots[0] : null);
+    }
     // reinicia a detecção de som (para não ficar travado "aguardando impacto")
     phase='idle'; noiseFloor=0.01; burstState='quiet'; burstPeakAmp=-1; quietSince=null;
     impactSearching=false; impactHoldSince=null; impactCandAmp=-1;
@@ -1355,7 +1360,7 @@
     currentLang = I18N[lang] ? lang : 'pt';
     document.querySelectorAll('[data-i18n]').forEach(el=>{
       const key = el.getAttribute('data-i18n');
-      const val = T(key, key==='betaDesc' ? {v:'2.9'} : null);
+      const val = T(key, key==='betaDesc' ? {v:'3.0'} : null);
       if(el.hasAttribute('data-i18n-html')) el.innerHTML = val;
       else el.textContent = val;
     });
