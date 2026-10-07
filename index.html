@@ -198,6 +198,8 @@
       <div class="bars" id="levelBars"></div>
     </div>
 
+    <div id="diagLine" style="display:none;margin-top:10px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:.3px;word-break:break-word;"></div>
+
     <div class="btn-grid">
       <button class="btn btn-primary" id="toggleBtn" data-i18n="toggleOn">LIGAR</button>
       <button class="btn btn-secondary" id="resetBtn" data-i18n="resetBtnLabel">RESETAR</button>
@@ -231,7 +233,7 @@
   </div>
 
   <div style="text-align:center;padding:14px 0 4px;color:var(--muted);font-size:11px;letter-spacing:.5px;">
-    Point IA Archery · <span data-i18n="versionLabel">versão</span> 2.7
+    Point IA Archery · <span data-i18n="versionLabel">versão</span> 3.1
   </div>
 </div>
 </div>
@@ -982,21 +984,81 @@
   }
 
   // ---------- audio ----------
+  // limiar absoluto mínimo para considerar um som como "disparo". No iPhone o
+  // microfone do Safari costuma entregar um nível mais baixo, então usamos um
+  // piso menor lá.
+  const ABS_FLOOR = isIOS() ? 0.02 : 0.035;
+
+  let wakeLock = null;
+  let diagLastUpdate = 0;
+  const diagLine = document.getElementById('diagLine');
+
+  async function requestWakeLock(){
+    try{
+      if('wakeLock' in navigator){
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', ()=>{ wakeLock = null; });
+      }
+    }catch(e){ /* sem suporte ou negado — segue sem */ }
+  }
+  function releaseWakeLock(){
+    try{ if(wakeLock){ wakeLock.release(); } }catch(e){}
+    wakeLock = null;
+  }
+
+  // Se o iOS pausar o áudio (tela apagou, ligação, troca de app), tenta retomar
+  async function tryResumeAudio(){
+    if(!listening || !audioCtx) return;
+    if(audioCtx.state !== 'running'){
+      try{ await audioCtx.resume(); }catch(e){}
+    }
+    if(!wakeLock) requestWakeLock();
+  }
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible') tryResumeAudio();
+  });
+
   async function startListening(){
     hideExampleUI(); // sai do modo exemplo se estava ativo
+
+    // IMPORTANTE (iOS/Safari): o AudioContext precisa ser criado e "destravado"
+    // DENTRO do toque do usuário, antes de qualquer await. Se criar depois do
+    // getUserMedia, o Safari já considera que o gesto acabou e deixa o contexto
+    // preso em "suspended" — o app mostra ESCUTANDO mas não recebe nenhum áudio.
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    try{ audioCtx.resume(); }catch(e){}
+
     try{
-      micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+      try{
+        micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+      }catch(e1){
+        // alguns aparelhos recusam as restrições — tenta o microfone padrão
+        if(e1 && e1.name==='OverconstrainedError'){
+          micStream = await navigator.mediaDevices.getUserMedia({audio:true});
+        } else { throw e1; }
+      }
     }catch(e){
+      try{ audioCtx.close(); }catch(_){}
+      audioCtx = null;
       alert(T('micPermissionAlert'));
       return;
     }
-    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-    // iOS/Safari frequentemente cria o AudioContext em estado "suspended"
-    // mesmo após o toque do usuário — sem isso, o app fica "ouvindo" mas
-    // nunca recebe nenhum dado de áudio (parece que não captou nada).
-    if(audioCtx.state === 'suspended'){
+
+    if(audioCtx.state !== 'running'){
       try{ await audioCtx.resume(); }catch(e){}
     }
+    audioCtx.onstatechange = ()=>{
+      if(listening && audioCtx && audioCtx.state !== 'running'){
+        listenStatus.textContent = T('statusWaitingAudio');
+        tryResumeAudio();
+      }
+    };
+    // o iOS silencia a faixa do microfone em interrupções (ligação, Siri, etc.)
+    micStream.getAudioTracks().forEach(tr=>{
+      tr.onmute = ()=>{ if(listening) listenStatus.textContent = T('statusWaitingAudio'); };
+      tr.onunmute = ()=>{ if(listening && phase==='idle') listenStatus.textContent = T('statusListening'); };
+    });
+
     const source = audioCtx.createMediaStreamSource(micStream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
@@ -1009,6 +1071,8 @@
     toggleBtn.textContent=T('toggleOff'); toggleBtn.classList.add('on');
     listenDot.classList.add('live');
     listenStatus.textContent = (audioCtx.state==='running') ? T('statusListening') : T('statusWaitingAudio');
+    diagLine.style.display = 'block';
+    requestWakeLock(); // impede a tela de apagar enquanto escuta
     loop();
   }
 
@@ -1016,8 +1080,10 @@
     listening = false;
     if(rafId) cancelAnimationFrame(rafId);
     if(micStream) micStream.getTracks().forEach(t=>t.stop());
-    if(audioCtx) audioCtx.close();
+    if(audioCtx){ audioCtx.onstatechange = null; try{ audioCtx.close(); }catch(e){} }
     audioCtx=null; analyser=null; micStream=null;
+    releaseWakeLock();
+    diagLine.style.display = 'none';
     toggleBtn.textContent=T('toggleOn'); toggleBtn.classList.remove('on');
     listenDot.classList.remove('live'); listenStatus.textContent=T('statusStopped');
     barEls.forEach(b=>{ b.style.height='2px'; b.style.background='var(--green-dim)'; });
@@ -1083,9 +1149,22 @@
     updateBars(amp);
     const now = performance.now();
 
+    // linha de diagnóstico (atualiza ~4x por segundo): estado do áudio, nível
+    // atual, ruído de fundo e limiar. Serve pra ver na tela o que o celular
+    // está realmente captando.
+    if(now - diagLastUpdate > 250){
+      diagLastUpdate = now;
+      const thrShown = Math.max(noiseFloor*settings.minPeakRatio, ABS_FLOOR);
+      diagLine.textContent = 'ctx:' + (audioCtx ? audioCtx.state : '-') +
+        ' · ' + (audioCtx ? Math.round(audioCtx.sampleRate) : 0) + 'Hz' +
+        ' · nível ' + amp.toFixed(3) +
+        ' · ruído ' + noiseFloor.toFixed(3) +
+        ' · limiar ' + thrShown.toFixed(3);
+    }
+
     if(phase==='idle'){
       // ---- 1ª fase: detectar o DISPARO (limiar fixo sobre o ruído de fundo) ----
-      const attackThr = Math.max(noiseFloor*settings.minPeakRatio, 0.035);
+      const attackThr = Math.max(noiseFloor*settings.minPeakRatio, ABS_FLOOR);
       const releaseThr = attackThr*RELEASE_FRAC;
 
       if(burstState==='quiet'){
@@ -1360,7 +1439,7 @@
     currentLang = I18N[lang] ? lang : 'pt';
     document.querySelectorAll('[data-i18n]').forEach(el=>{
       const key = el.getAttribute('data-i18n');
-      const val = T(key, key==='betaDesc' ? {v:'3.0'} : null);
+      const val = T(key, key==='betaDesc' ? {v:'3.1'} : null);
       if(el.hasAttribute('data-i18n-html')) el.innerHTML = val;
       else el.textContent = val;
     });
